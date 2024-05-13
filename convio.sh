@@ -33,42 +33,62 @@ compress_files() {
     local output_format="$2"
     local recursive="$3"
     local output_dir="$source_dir/compressed_files"
-    install_tools "ffmpeg" "imagemagick" "xz"
     mkdir -p "$output_dir"
+    local start_time end_time execution_time
+
     start_time=$(date +%s)
 
-    # Recursive function to compress files
+    # Function to process individual files
+    process_file() {
+        local input="$1"
+        local output_dir="$2"
+        local filename="${input##*/}"
+        local extension="${filename##*.}"
+        local output_file="$output_dir/$filename"
+
+        case "$extension" in
+        mp4)
+            install_tools "ffmpeg"
+            ffmpeg -i "$input" -c:v libx264 -crf 23 "$output_file"
+            ;;
+        jpg | png | gif)
+            install_tools "imagemagick"
+            convert "$input" -quality 60 "$output_file"
+            ;;
+        pdf | doc | docx | xls | xlsx | ppt | pptx)
+            install_tools "unoconv"
+            unoconv -f pdf -o "$output_dir" "$input"
+            ;;
+        *)
+            echo "Unsupported file format: $input" >&2
+            ;;
+        esac
+    }
+
+    # Function to process directories recursively
     compress_recursive() {
-        local dir="$1"
-        local output_subdir="$2"
-        for entry in "$dir"/*; do
-            if [ -d "$entry" ]; then
-                local subdir="$output_subdir/${entry##*/}"
-                mkdir -p "$subdir"
-                compress_recursive "$entry" "$subdir"
-            elif [ -f "$entry" ]; then
-                local filename="${entry##*/}"
-                local extension="${filename##*.}"
-                case "$extension" in
-                mp4)
-                    ffmpeg -i "$entry" -c:v libx264 -crf 23 "$output_subdir/$filename"
-                    ;;
-                jpg | png | gif)
-                    convert "$entry" "$output_subdir/$filename.$output_format"
-                    ;;
-                *)
-                    xz -k -z "$entry" -c >"$output_subdir/$filename.xz"
-                    ;;
-                esac
+        local source_dir="$1"
+        local output_dir="$2"
+        echo -e "${GREEN}Processing $source_dir...${NC}"
+        for file in "$source_dir"/*; do
+            if [ -d "$file" ]; then
+                local sub_dir="$output_dir/${file##*/}"
+                if [ "${file##*/}" != "compressed_files" ]; then
+                    mkdir -p "$sub_dir"
+                    compress_recursive "$file" "$sub_dir"
+                fi
+            else
+                process_file "$file" "$output_dir"
             fi
         done
     }
 
+    # Main compression logic
     if [ "$recursive" == "true" ]; then
         compress_recursive "$source_dir" "$output_dir"
     else
         for file in "$source_dir"/*; do
-            compress_recursive "$file" "$output_dir"
+            process_file "$file" "$output_dir"
         done
     fi
 
@@ -76,7 +96,6 @@ compress_files() {
     execution_time=$((end_time - start_time))
     echo -e "${GREEN}Compression completed in $execution_time seconds${NC}"
 }
-
 # Process command-line arguments
 while getopts ":hc:o:r" opt; do
     case $opt in
