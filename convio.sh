@@ -15,6 +15,7 @@ show_help() {
     echo " -f       Use fork for parallel processing"
     echo "  -o FORMAT Output format for conversions (e.g., mp4, jpg, pdf)"
     echo "  -r        Recursive conversion (for folders)"
+    echo " -s use subshell to run conversion"
 }
 
 # Function to install conversion tools
@@ -35,9 +36,8 @@ install_tools() {
     done
 }
 
-if [ "$use_fork" == "true" ]; then
+if [ "$use_fork" == "true" ] || [ "$use_subshell" == "true" ]; then
     install_tools "ffmpeg" "imagemagick" "unoconv" "xz"
-
 fi
 # Function to compress files (video, images, and others)
 compress_files() {
@@ -51,7 +51,13 @@ compress_files() {
     local running_processes=0
 
     start_time=$(date +%s)
-
+    calculate_process() {
+        ((running_processes++))
+        if [ $running_processes -ge $max_processes ]; then
+            wait
+            running_processes=0
+        fi
+    }
     # Function to process individual files
     process_file() {
         local input="$1"
@@ -101,16 +107,16 @@ compress_files() {
             else
                 if [ "$use_fork" == "true" ]; then
                     process_file "$file" "$output_dir" &
-                    ((running_processes++))
-                    if [ $running_processes -ge $max_processes ]; then
-                        wait
-                        running_processes=0
-                    fi
+                    calculate_process
 
+                elif [ "$use_subshell" == "true" ]; then
+                    (
+                        process_file "$file" "$output_dir"
+                    )
                 else
                     process_file "$file" "$output_dir"
-
                 fi
+
             fi
         done
     }
@@ -122,26 +128,28 @@ compress_files() {
         for file in "$source_dir"/*; do
             if [ "$use_fork" == "true" ]; then
                 process_file "$file" "$output_dir" &
-                ((running_processes++))
-                if [ $running_processes -ge $max_processes ]; then
-                    wait
-                    running_processes=0
-                fi
-
+                calculate_process
+            elif [ "$use_subshell" == "true" ]; then
+                (
+                    process_file "$file" "$output_dir"
+                )
             else
                 process_file "$file" "$output_dir"
 
             fi
         done
     fi
-    wait
+    if [ "$use_fork" == "true" ]; then
+        wait
+    fi
     end_time=$(date +%s)
     execution_time=$((end_time - start_time))
     echo -e "${GREEN}Compression completed in $execution_time seconds${NC}"
 }
 # Process command-line arguments
-use_fork="false" # Default value for use_fork
-while getopts ":hc:o:rf" opt; do
+use_fork="false"
+use_subshell="false"
+while getopts ":hc:o:r:fs" opt; do
     case $opt in
     h)
         show_help
@@ -151,6 +159,7 @@ while getopts ":hc:o:rf" opt; do
     o) output_format="$OPTARG" ;;
     r) recursive="true" ;;
     f) use_fork="true" ;;
+    s) use_subshell="true" ;;
 
     \?)
         echo -e "${RED}Invalid option: -$OPTARG${NC}" >&2
