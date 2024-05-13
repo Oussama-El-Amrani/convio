@@ -14,6 +14,7 @@ show_help() {
     echo "  -c TYPE   Conversion type (image, video, audio, document, compress)"
     echo "  -o FORMAT Output format for conversions (e.g., mp4, jpg, pdf)"
     echo "  -r        Recursive conversion (for folders)"
+    echo "  -l LOG    Directory to store the log file"
 }
 
 # Function to install conversion tools
@@ -35,6 +36,7 @@ compress_files() {
     local output_dir="$source_dir/compressed_files"
     mkdir -p "$output_dir"
     local start_time end_time execution_time
+    local log_file="$log_dir/convio.log"
 
     start_time=$(date +%s)
 
@@ -45,6 +47,7 @@ compress_files() {
         local filename="${input##*/}"
         local extension="${filename##*.}"
         local output_file="$output_dir/$filename"
+        local metadata_file="$log_dir/$filename.metadata"
 
         case "$extension" in
         mp4)
@@ -63,6 +66,9 @@ compress_files() {
             echo "Unsupported file format: $input" >&2
             ;;
         esac
+
+        # Capture file metadata
+        file_metadata=$(ffprobe -v quiet -print_format json -show_format "$output_file")
     }
 
     # Function to process directories recursively
@@ -78,7 +84,7 @@ compress_files() {
                     compress_recursive "$file" "$sub_dir"
                 fi
             else
-                process_file "$file" "$output_dir"
+                process_file "$file" "$output_dir" &
             fi
         done
     }
@@ -106,6 +112,7 @@ while getopts ":hc:o:r" opt; do
     c) convert_type="$OPTARG" ;;
     o) output_format="$OPTARG" ;;
     r) recursive="true" ;;
+    l) log_dir="$OPTARG" ;;
     \?)
         echo -e "${RED}Invalid option: -$OPTARG${NC}" >&2
         show_help
