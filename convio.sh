@@ -59,6 +59,10 @@ compress_files() {
             install_tools "unoconv"
             unoconv -f pdf -o "$output_dir" "$input"
             ;;
+        mp3 | wav | flac)
+            install_tools "ffmpeg"
+            ffmpeg -i "$input" -ar 16000 -b:a 32000 -ac 1 "$output_file"
+            ;;
         *)
             echo "Unsupported file format: $input" >&2
             ;;
