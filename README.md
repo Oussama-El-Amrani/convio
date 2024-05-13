@@ -1,5 +1,3 @@
-Sure, here's a README file for the `convio` tool on GitHub:
-
 ```markdown
 # Convio
 
