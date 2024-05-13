@@ -15,6 +15,7 @@ show_help() {
     echo " -f       Use fork for parallel processing"
     echo "  -o FORMAT Output format for conversions (e.g., mp4, jpg, pdf)"
     echo "  -r        Recursive conversion (for folders)"
+    echo "  -l LOG    Directory to store the log file"
     echo " -s use subshell to run conversion"
 }
 
@@ -47,6 +48,7 @@ compress_files() {
     local output_dir="$source_dir/compressed_files"
     mkdir -p "$output_dir"
     local start_time end_time execution_time
+    local log_file="$log_dir/convio.log"
     local max_processes=10
     local running_processes=0
 
@@ -65,6 +67,7 @@ compress_files() {
         local filename="${input##*/}"
         local extension="${filename##*.}"
         local output_file="$output_dir/$filename"
+        local metadata_file="$log_dir/$filename.metadata"
 
         if [ -d "$input" ]; then
             return # Skip directories
@@ -90,6 +93,9 @@ compress_files() {
             echo "Unsupported file format: $input" >&2
             ;;
         esac
+
+        # Capture file metadata
+        file_metadata=$(ffprobe -v quiet -print_format json -show_format "$output_file")
     }
 
     # Function to process directories recursively
@@ -105,6 +111,7 @@ compress_files() {
                     compress_recursive "$file" "$sub_dir"
                 fi
             else
+                process_file "$file" "$output_dir" &
                 if [ "$use_fork" == "true" ]; then
                     process_file "$file" "$output_dir" &
                     calculate_process
@@ -158,6 +165,7 @@ while getopts ":hc:o:r:fs" opt; do
     c) convert_type="$OPTARG" ;;
     o) output_format="$OPTARG" ;;
     r) recursive="true" ;;
+    l) log_dir="$OPTARG" ;;
     f) use_fork="true" ;;
     s) use_subshell="true" ;;
 
