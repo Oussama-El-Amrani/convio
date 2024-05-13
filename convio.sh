@@ -12,6 +12,7 @@ show_help() {
     echo "Options:"
     echo "  -h        Show help"
     echo "  -c TYPE   Conversion type (image, video, audio, document, compress)"
+    echo " -f       Use fork for parallel processing"
     echo "  -o FORMAT Output format for conversions (e.g., mp4, jpg, pdf)"
     echo "  -r        Recursive conversion (for folders)"
 }
@@ -20,13 +21,24 @@ show_help() {
 install_tools() {
     local tools=("$@")
     for tool in "${tools[@]}"; do
-        if ! command -v "$tool" &>/dev/null; then
-            echo -e "${GREEN}Installing $tool...${NC}"
-            sudo apt-get install -y "$tool"
+        if [ "$tool" == "imagemagick" ]; then
+            if ! command -v convert &>/dev/null; then
+                echo -e "${GREEN}Installing $tool...${NC}"
+                sudo apt-get install -y "$tool"
+            fi
+        else
+            if ! command -v "$tool" &>/dev/null; then
+                echo -e "${GREEN}Installing $tool...${NC}"
+                sudo apt-get install -y "$tool"
+            fi
         fi
     done
 }
 
+if [ "$use_fork" == "true" ]; then
+    install_tools "ffmpeg" "imagemagick" "unoconv" "xz"
+
+fi
 # Function to compress files (video, images, and others)
 compress_files() {
     local source_dir="$1"
@@ -35,6 +47,8 @@ compress_files() {
     local output_dir="$source_dir/compressed_files"
     mkdir -p "$output_dir"
     local start_time end_time execution_time
+    local max_processes=10
+    local running_processes=0
 
     start_time=$(date +%s)
 
@@ -46,6 +60,9 @@ compress_files() {
         local extension="${filename##*.}"
         local output_file="$output_dir/$filename"
 
+        if [ -d "$input" ]; then
+            return # Skip directories
+        fi
         case "$extension" in
         mp4)
             install_tools "ffmpeg"
@@ -82,7 +99,18 @@ compress_files() {
                     compress_recursive "$file" "$sub_dir"
                 fi
             else
-                process_file "$file" "$output_dir"
+                if [ "$use_fork" == "true" ]; then
+                    process_file "$file" "$output_dir" &
+                    ((running_processes++))
+                    if [ $running_processes -ge $max_processes ]; then
+                        wait
+                        running_processes=0
+                    fi
+
+                else
+                    process_file "$file" "$output_dir"
+
+                fi
             fi
         done
     }
@@ -92,16 +120,28 @@ compress_files() {
         compress_recursive "$source_dir" "$output_dir"
     else
         for file in "$source_dir"/*; do
-            process_file "$file" "$output_dir"
+            if [ "$use_fork" == "true" ]; then
+                process_file "$file" "$output_dir" &
+                ((running_processes++))
+                if [ $running_processes -ge $max_processes ]; then
+                    wait
+                    running_processes=0
+                fi
+
+            else
+                process_file "$file" "$output_dir"
+
+            fi
         done
     fi
-
+    wait
     end_time=$(date +%s)
     execution_time=$((end_time - start_time))
     echo -e "${GREEN}Compression completed in $execution_time seconds${NC}"
 }
 # Process command-line arguments
-while getopts ":hc:o:r" opt; do
+use_fork="false" # Default value for use_fork
+while getopts ":hc:o:rf" opt; do
     case $opt in
     h)
         show_help
@@ -110,6 +150,8 @@ while getopts ":hc:o:r" opt; do
     c) convert_type="$OPTARG" ;;
     o) output_format="$OPTARG" ;;
     r) recursive="true" ;;
+    f) use_fork="true" ;;
+
     \?)
         echo -e "${RED}Invalid option: -$OPTARG${NC}" >&2
         show_help
