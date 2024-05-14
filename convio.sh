@@ -17,6 +17,7 @@ show_help() {
     echo "  -r        Recursive conversion (for folders)"
     echo "  -l LOG    Directory to store the log file"
     echo " -s use subshell to run conversion"
+    echo " -t       Use threads for parallel processing"
 }
 
 # Function to install conversion tools
@@ -37,8 +38,8 @@ install_tools() {
     done
 }
 
-if [ "$use_fork" == "true" ] || [ "$use_subshell" == "true" ]; then
-    install_tools "ffmpeg" "imagemagick" "unoconv" "xz"
+if [ "$use_fork" == "true" ] || [ "$use_subshell" == "true" ] || [ "$use_thread" == "true" ]; then
+    install_tools "ffmpeg" "imagemagick" "unoconv" "xz" "xargs"
 fi
 # Function to compress files (video, images, and others)
 compress_files() {
@@ -51,7 +52,6 @@ compress_files() {
     local log_file="$log_dir/convio.log"
     local max_processes=10
     local running_processes=0
-
     start_time=$(date +%s)
     calculate_process() {
         ((running_processes++))
@@ -68,10 +68,10 @@ compress_files() {
         local extension="${filename##*.}"
         local output_file="$output_dir/$filename"
         local metadata_file="$log_dir/$filename.metadata"
-
         if [ -d "$input" ]; then
             return # Skip directories
         fi
+
         case "$extension" in
         mp4)
             install_tools "ffmpeg"
@@ -97,6 +97,17 @@ compress_files() {
         # Capture file metadata
         file_metadata=$(ffprobe -v quiet -print_format json -show_format "$output_file")
     }
+    export -f process_file
+    export -f install_tools
+    parallel_threads() {
+        local source_dir="$1"
+        local output_dir="$2"
+
+        export -f process_file
+
+        find "$source_dir" -type f -print0 |
+            xargs -0 -P "$(nproc)" -I {} bash -c 'process_file "$1" "$2"' _ {} "$output_dir"
+    }
 
     # Function to process directories recursively
     compress_recursive() {
@@ -120,6 +131,9 @@ compress_files() {
                     (
                         process_file "$file" "$output_dir"
                     )
+                elif [ "$use_thread" == "true" ]; then
+                    parallel_threads "$file" "$output_dir"
+
                 else
                     process_file "$file" "$output_dir"
                 fi
@@ -140,23 +154,27 @@ compress_files() {
                 (
                     process_file "$file" "$output_dir"
                 )
+            elif [ "$use_thread" == "true" ]; then
+                parallel_threads "$file" "$output_dir"
             else
                 process_file "$file" "$output_dir"
 
             fi
         done
     fi
-    if [ "$use_fork" == "true" ]; then
+    if [ "$use_fork" == "true" ] || [ "$use_threads" == "true" ]; then
         wait
     fi
     end_time=$(date +%s)
     execution_time=$((end_time - start_time))
     echo -e "${GREEN}Compression completed in $execution_time seconds${NC}"
+
 }
-# Process command-line arguments
+
 use_fork="false"
 use_subshell="false"
-while getopts ":hc:o:r:fs" opt; do
+use_thread="false"
+while getopts ":hc:o:r:fst" opt; do
     case $opt in
     h)
         show_help
@@ -168,6 +186,7 @@ while getopts ":hc:o:r:fs" opt; do
     l) log_dir="$OPTARG" ;;
     f) use_fork="true" ;;
     s) use_subshell="true" ;;
+    t) use_thread="true" ;;
 
     \?)
         echo -e "${RED}Invalid option: -$OPTARG${NC}" >&2
