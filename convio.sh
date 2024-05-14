@@ -39,7 +39,7 @@ install_tools() {
 }
 
 if [ "$use_fork" == "true" ] || [ "$use_subshell" == "true" ] || [ "$use_thread" == "true" ]; then
-    install_tools "ffmpeg" "imagemagick" "unoconv" "xz" "xargs"
+    install_tools "ffmpeg" "imagemagick" "ghostscript" "xz" "xargs"
 fi
 # Function to compress files (video, images, and others)
 compress_files() {
@@ -68,6 +68,7 @@ compress_files() {
         local extension="${filename##*.}"
         local output_file="$output_dir/$filename"
         local metadata_file="$log_dir/$filename.metadata"
+        echo -e "${GREEN}Processing $input...${NC}"
         if [ -d "$input" ]; then
             return # Skip directories
         fi
@@ -81,10 +82,11 @@ compress_files() {
             install_tools "imagemagick"
             convert "$input" -quality 60 "$output_file"
             ;;
-        pdf | doc | docx | xls | xlsx | ppt | pptx)
-            install_tools "unoconv"
-            unoconv -f pdf -o "$output_dir" "$input"
+        pdf)
+            install_tools "ghostscript"
+            gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dBATCH -sOutputFile="$output_file" "$input"
             ;;
+
         mp3 | wav | flac)
             install_tools "ffmpeg"
             ffmpeg -i "$input" -ar 16000 -b:a 32000 -ac 1 "$output_file"
